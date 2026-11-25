@@ -19,7 +19,6 @@ namespace AISiteTunnel
     public partial class Form1 : Form
     {
         // ================= НАСТРОЙКИ =================
-        private const string DnsServer = "dns.comss.one";
         private const string ResolveDomain = "chatgpt.com";
         private const string StartMarker = "#--AI Site Tunnel START--";
         private const string EndMarker = "#--AI Site Tunnel END--";
@@ -29,7 +28,6 @@ namespace AISiteTunnel
         private const string GithubReleasesPage =
             "https://github.com/ComradeBingo/AIST-AI_Site_Tunnel/releases/latest";
 
-        // Версия приложения — берётся из AssemblyInfo.cs (AssemblyVersion)
         private static readonly string APP_VERSION =
             Assembly.GetExecutingAssembly().GetName().Version.ToString();
 
@@ -66,6 +64,24 @@ namespace AISiteTunnel
             "canva.com"
         };
 
+        // ================= DoH =================
+        // Порядок = приоритет. При неудаче первого запроса идём к следующему.
+        private static readonly string[] DohEndpoints =
+        {
+            "https://dns.zapret.moe/dns-query",
+            "https://dns.magicdns.ru/dns-query"
+            
+        };
+
+        private static readonly HttpClient Http = CreateHttpClient();
+
+        private static HttpClient CreateHttpClient()
+        {
+            var c = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            c.DefaultRequestHeaders.Add("User-Agent", "AIST-AI-Site-Tunnel-App");
+            return c;
+        }
+
         // ================= DWM (тёмный заголовок) =================
         [DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
@@ -81,10 +97,7 @@ namespace AISiteTunnel
         {
             InitializeComponent();
 
-            // Тёмный заголовок окна
             EnableDarkTitleBar(this.Handle);
-
-            // Заголовок окна с версией из сборки
             this.Text = BuildWindowTitle();
 
             _hostsPath = Path.Combine(
@@ -99,13 +112,12 @@ namespace AISiteTunnel
 
             if (!IsAdmin())
             {
-                Log("ВНИМАНИЕ: нет прав администратора. Запустите exe от имени администратора.");
+                Log("ВНИМАНИЕ: нет прав администратора. " +
+                    "Автоматическая запись hosts может не сработать — " +
+                    "будет предложено ручное обновление.");
                 SetStatus("Нет прав администратора");
-                btnRun.Enabled = false;
-                btnRestore.Enabled = false;
             }
 
-            // Проверка обновлений — асинхронно, не блокирует UI
             _ = CheckForUpdatesAsync();
         }
 
@@ -168,8 +180,6 @@ namespace AISiteTunnel
                     }
 
                     var json = await response.Content.ReadAsStringAsync();
-
-                    // Быстрый парсинг tag_name без подключения JSON-парсера
                     var match = Regex.Match(json, "\"tag_name\":\\s*\"([^\"]+)\"");
 
                     if (!match.Success)
@@ -221,7 +231,7 @@ namespace AISiteTunnel
             SetBusy(true);
             try
             {
-                await Task.Run(() => RunUpdate());
+                await Task.Run(() => RunUpdateAsync());
             }
             catch (Exception ex)
             {
@@ -236,6 +246,8 @@ namespace AISiteTunnel
 
         private async void btnRestore_Click(object sender, EventArgs e)
         {
+            // Кнопка «Восстановить hosts» — если она осталась в дизайнере.
+            // Пытаемся откатить изменения из бэкапа, но уже без требования прав.
             SetBusy(true);
             try
             {
@@ -274,16 +286,16 @@ namespace AISiteTunnel
         }
 
         // ================= ОСНОВНОЙ СЦЕНАРИЙ =================
-        private void RunUpdate()
+        private async Task RunUpdateAsync()
         {
             Log("=== Запуск обновления ===");
 
-            SetStatus("Резолвинг...");
-            string ip = ResolveViaNslookup(ResolveDomain, DnsServer);
+            SetStatus("Разрешение через DoH (wireformat)...");
+            string ip = await ResolveViaDohWireAsync(ResolveDomain).ConfigureAwait(false);
 
             if (string.IsNullOrEmpty(ip))
             {
-                Log("Не удалось получить IP. Проверьте доступность DNS-сервера.");
+                Log("Не удалось получить IP через DoH. Проверьте сеть или добавьте другой эндпоинт.");
                 SetStatus("Не удалось получить IP");
                 return;
             }
@@ -291,62 +303,178 @@ namespace AISiteTunnel
             Log("Получен IP: " + ip);
 
             SetStatus("Бэкап hosts...");
-            BackupHosts();
+            try
+            {
+                BackupHosts();
+            }
+            catch (Exception ex)
+            {
+                Log("Бэкап не удался: " + ex.Message);
+            }
 
             SetStatus("Обновление hosts...");
-            UpdateHosts(ip);
-
-            SetStatus("Сброс DNS-кэша...");
-            FlushDns();
-
-            SetStatus("Готово. IP: " + ip);
-            Log("=== Готово ===");
-        }
-
-        // ================= NSLOOKUP =================
-        private string ResolveViaNslookup(string host, string dnsServer)
-        {
-            var psi = new ProcessStartInfo
+            if (TryUpdateHosts(ip, out string error))
             {
-                FileName = "nslookup",
-                Arguments = $"{host} {dnsServer}",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                StandardOutputEncoding = Encoding.GetEncoding(866),
-                StandardErrorEncoding = Encoding.GetEncoding(866)
-            };
-
-            using (var p = Process.Start(psi))
+                SetStatus("Сброс DNS-кэша...");
+                FlushDns();
+                SetStatus("Готово. IP: " + ip);
+                Log("=== Готово ===");
+            }
+            else
             {
-                string output = p.StandardOutput.ReadToEnd();
-                p.WaitForExit();
-
-                return ParseLastIp(output);
+                Log("Автоматическая запись не удалась: " + error);
+                SetStatus("Требуется ручное обновление");
+                OfferManualEdit(ip, error);
             }
         }
 
-        private string ParseLastIp(string output)
+        // ================= DoH wireformat =================
+        private async Task<string> ResolveViaDohWireAsync(string domain)
         {
-            var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-            string lastIp = null;
+            byte[] queryBytes = BuildDnsQuery(domain);
 
-            foreach (var line in lines)
+            foreach (var endpoint in DohEndpoints)
             {
-                var tokens = line.Split(new[] { ' ', '\t', ':', ',' }, StringSplitOptions.RemoveEmptyEntries);
-
-                foreach (var token in tokens)
+                try
                 {
-                    if (IsValidIPv4(token))
-                        lastIp = token;
+                    Log("DoH wire POST: " + endpoint);
+
+                    using (var content = new ByteArrayContent(queryBytes))
+                    {
+                        content.Headers.ContentType =
+                            new System.Net.Http.Headers.MediaTypeHeaderValue("application/dns-message");
+
+                        using (var request = new HttpRequestMessage(HttpMethod.Post, endpoint))
+                        {
+                            request.Content = content;
+                            request.Headers.Accept.ParseAdd("application/dns-message");
+
+                            using (var resp = await Http.SendAsync(request).ConfigureAwait(false))
+                            {
+                                if (!resp.IsSuccessStatusCode)
+                                {
+                                    Log($"  HTTP {(int)resp.StatusCode} от {endpoint}");
+                                    continue;
+                                }
+
+                                byte[] respBytes = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                                string ip = ParseDnsWireResponse(respBytes);
+
+                                if (!string.IsNullOrEmpty(ip))
+                                {
+                                    Log($"  Успех: {domain} -> {ip} ({endpoint})");
+                                    return ip;
+                                }
+
+                                Log("  Ответ не содержит A-записи.");
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log($"  Ошибка {endpoint}: {ex.Message}");
                 }
             }
 
-            if (lastIp != null)
-                Log("Выбран последний IP: " + lastIp);
+            return null;
+        }
 
-            return lastIp;
+        private static byte[] BuildDnsQuery(string domain, ushort queryType = 1)
+        {
+            var labels = domain.Split('.');
+            int qnameLen = 0;
+            foreach (var label in labels) qnameLen += 1 + label.Length;
+            qnameLen += 1; // завершающий 0
+
+            var query = new byte[12 + qnameLen + 4];
+            int idx = 0;
+
+            // Header (12 bytes)
+            query[idx++] = 0x00; query[idx++] = 0x00; // ID = 0
+            query[idx++] = 0x01; query[idx++] = 0x00; // Flags: RD=1
+            query[idx++] = 0x00; query[idx++] = 0x01; // QDCOUNT = 1
+            query[idx++] = 0x00; query[idx++] = 0x00; // ANCOUNT = 0
+            query[idx++] = 0x00; query[idx++] = 0x00; // NSCOUNT = 0
+            query[idx++] = 0x00; query[idx++] = 0x00; // ARCOUNT = 0
+
+            // QNAME
+            foreach (var label in labels)
+            {
+                query[idx++] = (byte)label.Length;
+                foreach (char c in label) query[idx++] = (byte)c;
+            }
+            query[idx++] = 0x00;
+
+            // QTYPE
+            query[idx++] = (byte)(queryType >> 8);
+            query[idx++] = (byte)(queryType & 0xFF);
+
+            // QCLASS = IN (1)
+            query[idx++] = 0x00;
+            query[idx++] = 0x01;
+
+            return query;
+        }
+
+        private static string ParseDnsWireResponse(byte[] resp)
+        {
+            try
+            {
+                if (resp == null || resp.Length < 12) return null;
+
+                int qdCount = (resp[4] << 8) | resp[5];
+                int anCount = (resp[6] << 8) | resp[7];
+
+                if (anCount == 0) return null;
+
+                int offset = 12;
+
+                // Пропускаем QNAME (поддерживаем указатели сжатия)
+                for (int i = 0; i < qdCount; i++)
+                {
+                    offset = SkipDnsName(resp, offset);
+                    offset += 4; // QTYPE + QCLASS
+                }
+
+                // Разбираем Answer
+                for (int i = 0; i < anCount; i++)
+                {
+                    offset = SkipDnsName(resp, offset);
+
+                    if (offset + 10 > resp.Length) break;
+
+                    ushort type = (ushort)((resp[offset] << 8) | resp[offset + 1]);
+                    ushort klass = (ushort)((resp[offset + 2] << 8) | resp[offset + 3]);
+                    ushort rdLength = (ushort)((resp[offset + 8] << 8) | resp[offset + 9]);
+                    offset += 10;
+
+                    if (type == 1 && klass == 1 && rdLength == 4 && offset + 4 <= resp.Length)
+                    {
+                        return $"{resp[offset]}.{resp[offset + 1]}.{resp[offset + 2]}.{resp[offset + 3]}";
+                    }
+
+                    offset += rdLength;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("ParseDnsWireResponse: " + ex.Message);
+            }
+
+            return null;
+        }
+
+        private static int SkipDnsName(byte[] resp, int offset)
+        {
+            while (offset < resp.Length)
+            {
+                byte len = resp[offset];
+                if (len == 0) return offset + 1;
+                if ((len & 0xC0) == 0xC0) return offset + 2; // указатель сжатия
+                offset += 1 + len;
+            }
+            return offset;
         }
 
         private static bool IsValidIPv4(string s)
@@ -375,14 +503,47 @@ namespace AISiteTunnel
                 return;
             }
 
-            File.Copy(_backupPath, _hostsPath, overwrite: true);
-            Log("hosts восстановлен из бэкапа.");
-            FlushDns();
-            SetStatus("hosts восстановлен");
+            try
+            {
+                File.Copy(_backupPath, _hostsPath, overwrite: true);
+                Log("hosts восстановлен из бэкапа.");
+                FlushDns();
+                SetStatus("hosts восстановлен");
+            }
+            catch (Exception ex)
+            {
+                Log("Не удалось восстановить hosts: " + ex.Message);
+                SetStatus("Не удалось восстановить hosts");
+            }
         }
 
         // ================= HOSTS =================
-        private void UpdateHosts(string ip)
+        private bool TryUpdateHosts(string ip, out string error)
+        {
+            error = null;
+            try
+            {
+                WriteHosts(ip);
+                return true;
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                error = "Нет прав на запись в hosts: " + ex.Message;
+                return false;
+            }
+            catch (IOException ex)
+            {
+                error = "Файл hosts заблокирован (возможно, антивирусом): " + ex.Message;
+                return false;
+            }
+            catch (Exception ex)
+            {
+                error = "Не удалось записать hosts: " + ex.Message;
+                return false;
+            }
+        }
+
+        private void WriteHosts(string ip)
         {
             var attrs = File.GetAttributes(_hostsPath);
             if ((attrs & FileAttributes.ReadOnly) != 0)
@@ -447,6 +608,38 @@ namespace AISiteTunnel
             File.WriteAllLines(_hostsPath, result, utf8NoBom);
 
             Log($"Записано {Domains.Length} доменов на IP {ip}.");
+        }
+
+        private string BuildHostsBlock(string ip)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine();
+            sb.AppendLine(StartMarker);
+            foreach (var domain in Domains)
+                sb.AppendLine(ip + "\t" + domain);
+            sb.AppendLine(EndMarker);
+            sb.AppendLine();
+            return sb.ToString();
+        }
+
+        // ================= РУЧНОЕ ОБНОВЛЕНИЕ =================
+        private void OfferManualEdit(string ip, string error)
+        {
+            // Из фонового потока Task.Run переходим в UI-поток
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => OfferManualEdit(ip, error)));
+                return;
+            }
+
+            string block = BuildHostsBlock(ip);
+
+            using (var form = new ManualHostsForm(_hostsPath, block))
+            {
+                form.ShowDialog(this);
+            }
+
+            Log("Окно ручного обновления закрыто.");
         }
 
         // ================= FLUSH DNS =================
@@ -516,10 +709,11 @@ namespace AISiteTunnel
 
             if (s.Contains("готово") || s.Contains("успешно") || s.Contains("обновление"))
                 dotColor = Color.FromArgb(78, 201, 176);
-            else if (s.Contains("ошибк") || s.Contains("не удалось") || s.Contains("нет прав"))
+            else if (s.Contains("ошибк") || s.Contains("не удалось") || s.Contains("нет прав") ||
+                     s.Contains("требуется ручное"))
                 dotColor = Color.FromArgb(244, 135, 113);
             else if (s.Contains("резолвинг") || s.Contains("бэкап") ||
-                     s.Contains("обновление hosts") || s.Contains("сброс"))
+                     s.Contains("обновление hosts") || s.Contains("сброс") || s.Contains("разрешение"))
                 dotColor = Color.FromArgb(220, 220, 170);
             else
                 dotColor = Color.Gray;
@@ -538,11 +732,52 @@ namespace AISiteTunnel
                 return;
             }
 
-            btnRun.Enabled = !busy && IsAdmin();
-            btnRestore.Enabled = !busy && IsAdmin();
+            // Кнопку Run больше не блокируем отсутствием прав — программа сама
+            // предложит ручное обновление, если автозапись не удастся.
+            btnRun.Enabled = !busy;
+            btnRestore.Enabled = !busy;
             btnGithub.Enabled = !busy;
             btnExit.Enabled = !busy;
             Cursor = busy ? Cursors.WaitCursor : Cursors.Default;
         }
+
+        private async void btnManual_Click(object sender, EventArgs e)
+        {
+            SetBusy(true);
+            try
+            {
+                SetStatus("Разрешение через DoH...");
+                string ip = await Task.Run(() => ResolveViaDohWireAsync(ResolveDomain));
+
+                if (string.IsNullOrEmpty(ip))
+                {
+                    Log("DoH не вернул IP — открываю форму с заготовкой для ручного ввода.");
+                    ip = "0.0.0.0";
+                }
+                else
+                {
+                    Log("Для ручного обновления получен IP: " + ip);
+                }
+
+                string block = BuildHostsBlock(ip);
+
+                using (var form = new ManualHostsForm(_hostsPath, block))
+                {
+                    form.ShowDialog(this);
+                }
+
+                Log("Окно ручного обновления закрыто.");
+            }
+            catch (Exception ex)
+            {
+                Log("ОШИБКА: " + ex.Message);
+                SetStatus("Ошибка");
+            }
+            finally
+            {
+                SetBusy(false);
+            }
+        }
+
     }
 }

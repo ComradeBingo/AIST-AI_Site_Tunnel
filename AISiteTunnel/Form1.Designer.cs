@@ -11,6 +11,7 @@ namespace AISiteTunnel
         private System.Windows.Forms.TextBox txtLog;
         private System.Windows.Forms.Button btnRun;
         private System.Windows.Forms.Button btnRestore;
+        private System.Windows.Forms.Button btnManual;
         private System.Windows.Forms.Button btnGithub;
         private System.Windows.Forms.Button btnExit;
 
@@ -28,6 +29,7 @@ namespace AISiteTunnel
             this.txtLog = new System.Windows.Forms.TextBox();
             this.btnRun = new System.Windows.Forms.Button();
             this.btnRestore = new System.Windows.Forms.Button();
+            this.btnManual = new System.Windows.Forms.Button();
             this.btnGithub = new System.Windows.Forms.Button();
             this.btnExit = new System.Windows.Forms.Button();
             this.SuspendLayout();
@@ -41,6 +43,9 @@ namespace AISiteTunnel
             var btnHover = System.Drawing.Color.FromArgb(80, 80, 80);
             var btnAccent = System.Drawing.Color.FromArgb(14, 99, 156);
             var btnAccentHover = System.Drawing.Color.FromArgb(17, 119, 187);
+            var btnCrimson = System.Drawing.Color.FromArgb(220, 20, 60);
+            var btnCrimsonHover = System.Drawing.Color.FromArgb(240, 40, 80);
+            var btnCrimsonDown = System.Drawing.Color.FromArgb(180, 10, 45);
 
             // ============ lblStatusDot (индикатор-кружок) ============
             this.lblStatusDot.AutoSize = true;
@@ -76,7 +81,7 @@ namespace AISiteTunnel
             this.txtLog.Name = "txtLog";
             this.txtLog.ReadOnly = true;
             this.txtLog.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this.txtLog.Size = new System.Drawing.Size(560, 310);
+            this.txtLog.Size = new System.Drawing.Size(660, 310);
             this.txtLog.TabIndex = 2;
 
             // ============ btnRun (акцентная) ============
@@ -91,7 +96,7 @@ namespace AISiteTunnel
             this.btnRun.ForeColor = System.Drawing.Color.White;
             this.btnRun.Location = new System.Drawing.Point(12, 360);
             this.btnRun.Name = "btnRun";
-            this.btnRun.Size = new System.Drawing.Size(170, 32);
+            this.btnRun.Size = new System.Drawing.Size(140, 32);
             this.btnRun.TabIndex = 3;
             this.btnRun.Text = "Обновить hosts";
             this.btnRun.UseVisualStyleBackColor = false;
@@ -107,13 +112,31 @@ namespace AISiteTunnel
             this.btnRestore.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnRestore.Font = new System.Drawing.Font("Segoe UI", 9.5F);
             this.btnRestore.ForeColor = fgText;
-            this.btnRestore.Location = new System.Drawing.Point(192, 360);
+            this.btnRestore.Location = new System.Drawing.Point(162, 360);
             this.btnRestore.Name = "btnRestore";
-            this.btnRestore.Size = new System.Drawing.Size(170, 32);
+            this.btnRestore.Size = new System.Drawing.Size(140, 32);
             this.btnRestore.TabIndex = 4;
             this.btnRestore.Text = "Восстановить hosts";
             this.btnRestore.UseVisualStyleBackColor = false;
             this.btnRestore.Click += new System.EventHandler(this.btnRestore_Click);
+
+            // ============ btnManual (Crimson) ============
+            this.btnManual.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom
+                | System.Windows.Forms.AnchorStyles.Left)));
+            this.btnManual.BackColor = btnCrimson;
+            this.btnManual.FlatAppearance.BorderSize = 0;
+            this.btnManual.FlatAppearance.MouseOverBackColor = btnCrimsonHover;
+            this.btnManual.FlatAppearance.MouseDownBackColor = btnCrimsonDown;
+            this.btnManual.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnManual.Font = new System.Drawing.Font("Segoe UI", 9.5F);
+            this.btnManual.ForeColor = System.Drawing.Color.White;
+            this.btnManual.Location = new System.Drawing.Point(312, 360);
+            this.btnManual.Name = "btnManual";
+            this.btnManual.Size = new System.Drawing.Size(150, 32);
+            this.btnManual.TabIndex = 5;
+            this.btnManual.Text = "Ручное обновление…";
+            this.btnManual.UseVisualStyleBackColor = false;
+            this.btnManual.Click += new System.EventHandler(this.btnManual_Click);
 
             // ============ btnGithub ============
             this.btnGithub.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom
@@ -125,10 +148,10 @@ namespace AISiteTunnel
             this.btnGithub.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnGithub.Font = new System.Drawing.Font("Segoe UI", 9.5F);
             this.btnGithub.ForeColor = fgText;
-            this.btnGithub.Location = new System.Drawing.Point(372, 360);
+            this.btnGithub.Location = new System.Drawing.Point(502, 360);
             this.btnGithub.Name = "btnGithub";
-            this.btnGithub.Size = new System.Drawing.Size(90, 32);
-            this.btnGithub.TabIndex = 5;
+            this.btnGithub.Size = new System.Drawing.Size(80, 32);
+            this.btnGithub.TabIndex = 6;
             this.btnGithub.Text = "GitHub";
             this.btnGithub.UseVisualStyleBackColor = false;
             this.btnGithub.Click += new System.EventHandler(this.btnGithub_Click);
@@ -143,10 +166,10 @@ namespace AISiteTunnel
             this.btnExit.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnExit.Font = new System.Drawing.Font("Segoe UI", 9.5F);
             this.btnExit.ForeColor = fgText;
-            this.btnExit.Location = new System.Drawing.Point(472, 360);
+            this.btnExit.Location = new System.Drawing.Point(582, 360);
             this.btnExit.Name = "btnExit";
-            this.btnExit.Size = new System.Drawing.Size(100, 32);
-            this.btnExit.TabIndex = 6;
+            this.btnExit.Size = new System.Drawing.Size(90, 32);
+            this.btnExit.TabIndex = 7;
             this.btnExit.Text = "Выход";
             this.btnExit.UseVisualStyleBackColor = false;
             this.btnExit.Click += new System.EventHandler(this.btnExit_Click);
@@ -155,18 +178,22 @@ namespace AISiteTunnel
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.BackColor = bgForm;
-            this.ClientSize = new System.Drawing.Size(584, 401);
+            this.ClientSize = new System.Drawing.Size(684, 401);
             this.Controls.Add(this.lblStatusDot);
             this.Controls.Add(this.lblStatus);
             this.Controls.Add(this.txtLog);
             this.Controls.Add(this.btnRun);
             this.Controls.Add(this.btnRestore);
+            this.Controls.Add(this.btnManual);
             this.Controls.Add(this.btnGithub);
             this.Controls.Add(this.btnExit);
             this.Font = new System.Drawing.Font("Segoe UI", 9F);
             this.ForeColor = fgText;
-            this.Icon = new System.Drawing.Icon(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "aist.ico"));
-            this.MinimumSize = new System.Drawing.Size(520, 380);
+            using (var ms = new System.IO.MemoryStream(global::AISiteTunnel.Properties.Resources.aist))
+            {
+                this.Icon = new System.Drawing.Icon(ms);
+            }
+            this.MinimumSize = new System.Drawing.Size(700, 380);
             this.Name = "Form1";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "AI Site Tunnel";
